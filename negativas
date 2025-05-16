@@ -1,0 +1,37 @@
+from collections import defaultdict
+
+# Ejemplo de datos de entrada
+keywords = [
+    # Palabra clave, Campaña, Grupo
+    ("depilacion laser yag", "Depilación Laser_2024_especifica_ES", "Yag"),
+    ("depilacion laser", "Depilación Laser_2024_especifica_ES", "Yag"),
+]
+search_terms = [
+    # Término de búsqueda, Campaña, Grupo
+    ("depilacion laser yag gratis", "Depilación Laser_2024_especifica_ES", "Yag"),
+    ("depilacion laser yag", "Depilación Laser_2024_especifica_ES", "Yag"),
+    ("depilacion laser precio", "Depilación Laser_2024_especifica_ES", "Yag"),
+]
+
+def obtener_palabras_unicas(keywords, search_terms):
+    # Indexar palabras clave por (campaña, grupo)
+    kw_dict = defaultdict(set)
+    for kw, camp, grupo in keywords:
+        for palabra in kw.split():
+            kw_dict[(camp, grupo)].add(palabra.lower())
+
+    # Buscar palabras únicas por (campaña, grupo)
+    resultados = set()
+    for term, camp, grupo in search_terms:
+        palabras = set(term.split())
+        palabras_kw = kw_dict.get((camp, grupo), set())
+        # Palabras en terminos de búsqueda y no en palabras clave
+        palabras_unicas = palabras - palabras_kw
+        for palabra in palabras_unicas:
+            resultados.add((palabra.lower(), camp, grupo))
+    return resultados
+
+# Ejecutar y mostrar
+resultados = obtener_palabras_unicas(keywords, search_terms)
+for palabra, camp, grupo in resultados:
+    print(f"{palabra}\t{camp}\t{grupo}")
