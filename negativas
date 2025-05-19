@@ -1,37 +1,256 @@
-from collections import defaultdict
+import pandas as pd
 
-# Ejemplo de datos de entrada
-keywords = [
-    # Palabra clave, Campaña, Grupo
-    ("depilacion laser yag", "Depilación Laser_2024_especifica_ES", "Yag"),
-    ("depilacion laser", "Depilación Laser_2024_especifica_ES", "Yag"),
+# 👉 1. Cargar archivos
+archivo_terminos = '/Users/arnau/Documents/Script python términos busqueda/Informe de termes de cerca.csv'
+archivo_palabras = '/Users/arnau/Documents/Script python términos busqueda/Informe de paraules clau de cerca.csv'
+
+# Cargar saltando metadatos y usando el separador correcto
+terminos_df = pd.read_csv(archivo_terminos, sep=';', skiprows=2, on_bad_lines='skip')
+palabras_clave_df = pd.read_csv(archivo_palabras, sep=';', skiprows=2, on_bad_lines='skip')
+
+# Separar columnas correctamente si están en una sola columna
+if terminos_df.shape[1] == 1:
+    terminos_df = terminos_df.iloc[:, 0].str.split(",", expand=True)
+if palabras_clave_df.shape[1] == 1:
+    palabras_clave_df = palabras_clave_df.iloc[:, 0].str.split(",", expand=True)
+
+# 👉 2. Renombrar columnas
+terminos_df.columns = [
+    "Termino", "Concordancia", "Agregado", "Campaña", "Grupo",
+    "Impresiones", "Interacciones", "CTR", "Moneda", "CPC medio", "Coste",
+    "Tipo campaña", "Porc. conv.", "Conversiones", "Coste/conv.",
+    "Extra1", "Extra2", "Extra3", "Extra4", "Extra5", "Extra6"
 ]
-search_terms = [
-    # Término de búsqueda, Campaña, Grupo
-    ("depilacion laser yag gratis", "Depilación Laser_2024_especifica_ES", "Yag"),
-    ("depilacion laser yag", "Depilación Laser_2024_especifica_ES", "Yag"),
-    ("depilacion laser precio", "Depilación Laser_2024_especifica_ES", "Yag"),
+
+palabras_clave_df.columns = [
+    "Estado", "Palabra clave", "Concordancia", "Campaña", "Grupo",
+    "Estado2", "Motivo", "Moneda", "CPC máx.", "URL final", "URL móvil",
+    "Impresiones", "Interacciones", "CTR", "CPC medio", "Coste", 
+    "Calidad", "Clics", "Porc. conv.", "Valor conv.", "Valor conv/coste",
+    "Conversiones", "CPC medio 2", "Coste/conv.", "Extra1", "Extra2", 
+    "Extra3", "Extra4", "Extra5", "Extra6", "Extra7", "Extra8", "Extra9"
 ]
 
-def obtener_palabras_unicas(keywords, search_terms):
-    # Indexar palabras clave por (campaña, grupo)
-    kw_dict = defaultdict(set)
-    for kw, camp, grupo in keywords:
-        for palabra in kw.split():
-            kw_dict[(camp, grupo)].add(palabra.lower())
+# 👉 3. Función para limpiar texto
+import unicodedata
 
-    # Buscar palabras únicas por (campaña, grupo)
-    resultados = set()
-    for term, camp, grupo in search_terms:
-        palabras = set(term.split())
-        palabras_kw = kw_dict.get((camp, grupo), set())
-        # Palabras en terminos de búsqueda y no en palabras clave
-        palabras_unicas = palabras - palabras_kw
-        for palabra in palabras_unicas:
-            resultados.add((palabra.lower(), camp, grupo))
-    return resultados
+def limpiar_texto(texto):
+    if pd.isnull(texto):
+        return ""
+    # Eliminar acentos
+    texto = unicodedata.normalize('NFD', str(texto))
+    texto = texto.encode('ascii', 'ignore').decode('utf-8')
+    
+    return (
+        texto
+        .replace('"', '')
+        .replace('[', '')
+        .replace(']', '')
+        .replace("(", "")
+        .replace(")", "")
+        .lower()
+        .strip()
+    )
 
-# Ejecutar y mostrar
-resultados = obtener_palabras_unicas(keywords, search_terms)
-for palabra, camp, grupo in resultados:
-    print(f"{palabra}\t{camp}\t{grupo}")
+
+# 👉 4. Normalizar texto
+terminos_df["Termino_limpio"] = terminos_df["Termino"].apply(limpiar_texto)
+palabras_clave_df["Palabra_clave_limpia"] = palabras_clave_df["Palabra clave"].apply(limpiar_texto)
+
+# Limpiar campos clave
+terminos_df["Campaña"] = terminos_df["Campaña"].fillna("").str.strip()
+terminos_df["Grupo"] = terminos_df["Grupo"].fillna("").str.strip()
+palabras_clave_df["Campaña"] = palabras_clave_df["Campaña"].fillna("").str.strip()
+palabras_clave_df["Grupo"] = palabras_clave_df["Grupo"].fillna("").str.strip()
+
+# 👉 5. Unir términos y claves por campaña y grupo
+df_merged = terminos_df.merge(
+    palabras_clave_df[["Campaña", "Grupo", "Palabra_clave_limpia", "Palabra clave"]],
+    on=["Campaña", "Grupo"],
+    how="left"
+)
+
+
+# 👉 6. Analizar diferencias
+def analizar_discrepancias(fila):
+    term_words = set(fila["Termino_limpio"].split())
+    keyword_words = set(fila["Palabra_clave_limpia"].split())
+    extra = term_words - keyword_words
+    faltantes = keyword_words - term_words
+    return pd.Series({
+        "Palabras_extra": ", ".join(sorted(extra)),
+        "Palabras_faltantes": ", ".join(sorted(faltantes))
+    })
+
+discrepancias = df_merged.apply(analizar_discrepancias, axis=1)
+df_resultado = pd.concat([df_merged, discrepancias], axis=1)
+
+# 👉 7. Filtrar y limpiar
+
+# Extra
+df_extra = df_resultado[df_resultado["Palabras_extra"] != ""][["Campaña", "Grupo", "Palabras_extra"]].drop_duplicates()
+
+# Faltantes
+df_faltantes = df_resultado[df_resultado["Palabras_faltantes"] != ""][["Campaña", "Grupo", "Termino", "Palabras_faltantes"]].drop_duplicates()
+
+# 👉 8. Exportar a dos CSVs
+df_extra.to_csv("palabras_extra.csv", index=False)
+df_faltantes.to_csv("palabras_faltantes.csv", index=False)
+
+print("✅ Exportado 'palabras_extra.csv' y 'palabras_faltantes.csv'")
+# 👉 9. Procesar palabras únicas y limpias
+
+# 👉 9. Limpieza por palabra, excluyendo palabras ya incluidas en las keywords del grupo
+
+def limpiar_lista(df, columna_palabras, output_file, keywords_df):
+    resultado_limpio = []
+
+    # Crear diccionario de grupo -> set de palabras clave limpias
+    grupos_keywords = (
+        keywords_df
+        .dropna(subset=["Palabra_clave_limpia"])
+        .groupby(["Campaña", "Grupo"])["Palabra_clave_limpia"]
+        .apply(lambda x: set(" ".join(x).split()))
+        .to_dict()
+    )
+
+    for _, row in df.iterrows():
+        campaña = row["Campaña"]
+        grupo = row["Grupo"]
+        palabras = row[columna_palabras]
+
+        # Separar, limpiar y filtrar
+        palabras_separadas = [p.strip().lower() for p in palabras.split(",")]
+        palabras_filtradas = [p for p in palabras_separadas if len(p) > 3]
+
+        # Palabras clave ya existentes en ese grupo
+        palabras_en_keywords = grupos_keywords.get((campaña, grupo), set())
+
+        for palabra in palabras_filtradas:
+            if palabra not in palabras_en_keywords:
+                resultado_limpio.append((campaña, grupo, palabra))
+
+    # Exportar
+    df_limpio = pd.DataFrame(resultado_limpio, columns=["Campaña", "Grupo", "Palabra"]).drop_duplicates()
+    df_limpio.to_csv(output_file, index=False)
+    print(f"✅ Exportado: {output_file}")
+
+# Ejecutar limpieza
+limpiar_lista(df_extra, "Palabras_extra", "palabras_extra_limpias.csv", palabras_clave_df)
+limpiar_lista(df_faltantes, "Palabras_faltantes", "palabras_faltantes_limpias.csv", palabras_clave_df)
+
+
+# 👉 10. Calcular performance por palabra extra dentro del grupo
+
+# Limpieza adicional para poder comparar términos sin acento
+terminos_df["Termino_limpio"] = terminos_df["Termino"].apply(limpiar_texto)
+terminos_df["Palabra_normalizada"] = terminos_df["Termino_limpio"]
+
+# Cargar palabras extra limpias
+df_palabras = pd.read_csv("palabras_extra_limpias.csv")
+
+# Inicializar resultados
+resultados = []
+
+# Recorrer cada palabra extra
+for _, row in df_palabras.iterrows():
+    campaña = row["Campaña"]
+    grupo = row["Grupo"]
+    palabra = row["Palabra"]
+
+    # Filtrar los términos en el mismo grupo/campaña que contengan esa palabra
+    filtro = (
+        (terminos_df["Campaña"] == campaña) &
+        (terminos_df["Grupo"] == grupo) &
+        (terminos_df["Palabra_normalizada"].str.contains(rf"\b{palabra}\b", regex=True))
+    )
+    subset = terminos_df[filtro]
+
+    # Convertir columnas a numéricas (algunas pueden estar como texto)
+    subset["Impresiones"] = pd.to_numeric(subset["Impresiones"], errors="coerce").fillna(0)
+    subset["Interacciones"] = pd.to_numeric(subset["Interacciones"], errors="coerce").fillna(0)
+    subset["CPC medio"] = pd.to_numeric(subset["CPC medio"], errors="coerce").fillna(0)
+    subset["Conversiones"] = pd.to_numeric(subset["Conversiones"], errors="coerce").fillna(0)
+
+    impresiones = int(subset["Impresiones"].sum())
+    clics = int(subset["Interacciones"].sum())
+    cpc_medio = subset["CPC medio"].mean() if clics > 0 else 0
+    conversiones = int(subset["Conversiones"].sum())
+
+    ratio_conversion = conversiones / clics if clics > 0 else 0
+    coste_total = cpc_medio * clics
+    coste_conversion = coste_total / conversiones if conversiones > 0 else 0
+
+    resultados.append({
+        "Campaña": campaña,
+        "Grupo": grupo,
+        "Palabra": palabra,
+        "Impresiones": impresiones,
+        "Clics": clics,
+        "CPC medio": round(cpc_medio, 2),
+        "Conversiones": conversiones,
+        "Ratio de conversión": round(ratio_conversion, 3),
+        "Coste de conversión": round(coste_conversion, 2)
+    })
+
+# Guardar resultados
+df_resultado_perf = pd.DataFrame(resultados)
+df_resultado_perf.to_csv("performance_extra.csv", index=False)
+print("✅ Exportado: performance_extra.csv")
+
+# 👉 11. Detectar términos que no contienen palabras que el grupo no ha cubierto nunca
+
+faltantes_grupo = []
+
+# 1. Palabras clave por grupo (las configuradas)
+grupos_keywords = (
+    palabras_clave_df
+    .dropna(subset=["Palabra_clave_limpia"])
+    .groupby(["Campaña", "Grupo"])["Palabra_clave_limpia"]
+    .apply(lambda kws: set(" ".join(kws).split()))
+    .to_dict()
+)
+
+# 2. Palabras que han aparecido realmente en términos por grupo
+grupos_terminos = (
+    terminos_df
+    .dropna(subset=["Termino_limpio"])
+    .groupby(["Campaña", "Grupo"])["Termino_limpio"]
+    .apply(lambda ts: set(" ".join(ts).split()))
+    .to_dict()
+)
+
+# 3. Recorrer términos individuales y detectar los que faltan algo importante
+for _, row in terminos_df.iterrows():
+    campaña = row["Campaña"]
+    grupo = row["Grupo"]
+    termino = row["Termino_limpio"]
+    palabras_termino = set(termino.split())
+
+    # Palabras clave configuradas para el grupo
+    palabras_esperadas = grupos_keywords.get((campaña, grupo), set())
+    palabras_cubiertas = grupos_terminos.get((campaña, grupo), set())
+
+    # Palabras esperadas que NUNCA han sido cubiertas por ningún término
+    palabras_nunca_activadas = palabras_esperadas - palabras_cubiertas
+
+    # Si el término no contiene alguna de esas palabras nunca activadas, la reportamos
+    palabras_faltantes = palabras_nunca_activadas - palabras_termino
+
+    if palabras_faltantes:
+        faltantes_grupo.append({
+            "Campaña": campaña,
+            "Grupo": grupo,
+            "Termino": termino,
+            "Palabras_faltantes": ", ".join(sorted(palabras_faltantes))
+        })
+
+# Exportar CSV con término + faltantes reales
+df_faltantes_grupo = pd.DataFrame(faltantes_grupo).drop_duplicates()
+df_faltantes_grupo.to_csv("faltantes_por_grupo.csv", index=False)
+print("✅ Exportado: faltantes_por_grupo.csv")
+
+# Guardar resultados
+df_resultado_perf = pd.DataFrame(resultados)
+df_resultado_perf.to_csv("performance_extra.csv", index=False)
+print("✅ Exportado: performance_extra.csv")
