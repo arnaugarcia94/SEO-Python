@@ -1,0 +1,36 @@
+import pandas as pd
+
+# Define las palabras clave para cada grupo
+col1_keywords = ['diseño', 'diseño interiores', 'interiorista', 'interiorismo', 'arquitecto', 'arquitectura']
+col2_keywords = ['sostenible', 'vintage', 'horeca', 'particulares', 'viviendas', 'pisos',
+                 'casas', 'oficina', 'comercial', 'bares', 'restaurantes', 'hoteles', 'hosteleria']
+col3_keywords = ['barcelona', 'madrid', 'girona', 'tarragona', 'valencia', 'mallorca']
+
+# Tus keywords para clasificar
+keywords = [
+"interiorista barcelona",
+"interiorista madrid",
+"interioristes barcelona",
+
+]
+
+# Crea un DataFrame con las keywords
+df = pd.DataFrame({'Keyword': keywords})
+
+# Función que clasifica una keyword en los tres grupos
+def clasificar_keyword(keyword):
+    keyword_lower = keyword.lower()
+    col1 = next((k for k in col1_keywords if k in keyword_lower), '')
+    col2 = next((k for k in col2_keywords if k in keyword_lower), '')
+    col3 = next((k for k in col3_keywords if k in keyword_lower), '')
+    return pd.Series([col1, col2, col3])
+
+# Clasificación y exportación
+df_clasificado = df['Keyword'].apply(clasificar_keyword)
+df_clasificado.columns = ['Grupo 1', 'Grupo 2', 'Grupo 3']
+df_resultado = pd.concat([df, df_clasificado], axis=1)
+
+# Exporta a CSV
+output_path = "clasificacion_keywords.csv"
+df_resultado.to_csv(output_path, index=False)
+print(f"Archivo exportado a {output_path}")cl
