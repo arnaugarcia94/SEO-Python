@@ -1,0 +1,67 @@
+import requests
+from bs4 import BeautifulSoup
+import re
+import json
+import pandas as pd
+
+# 🔗 Llistat d'URLs (afegeix les teves aquí)
+urls = [
+
+    # Afegeix aquí la resta de les teves URLs
+]
+
+# 🔎 Funció per extreure datePublished i dateModified del JSON-LD
+def extract_dates(url):
+    try:
+        response = requests.get(url, timeout=10)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        scripts = soup.find_all("script", type="application/ld+json")
+
+        date_published = ""
+        date_modified = ""
+
+        for script in scripts:
+            try:
+                data = json.loads(script.get_text())
+
+                if isinstance(data, dict):
+                    # Comprovem si hi ha un @graph
+                    if "@graph" in data:
+                        for entry in data["@graph"]:
+                            if isinstance(entry, dict) and entry.get("@type") in ["Article", "WebPage"]:
+                                date_published = entry.get("datePublished", date_published)
+                                date_modified = entry.get("dateModified", date_modified)
+                    else:
+                        # Per si no hi ha @graph
+                        if data.get("@type") in ["Article", "WebPage"]:
+                            date_published = data.get("datePublished", date_published)
+                            date_modified = data.get("dateModified", date_modified)
+
+            except (json.JSONDecodeError, TypeError):
+                continue
+
+        return date_published, date_modified
+    except Exception as e:
+        print(f"   ⚠️ Error accedint a la pàgina: {str(e)}")
+        return "", ""
+
+# 📥 Recollida de dades
+results = []
+print(f"\n🔍 Començant extracció per {len(urls)} URLs...\n")
+
+for i, url in enumerate(urls, start=1):
+    print(f"[{i}/{len(urls)}] Processant: {url}")
+    date_published, date_modified = extract_dates(url)
+    print(f"   ➤ datePublished: {date_published or 'No trobat'}")
+    print(f"   ➤ dateModified: {date_modified or 'No trobat'}\n")
+
+    results.append({
+        "URL": url,
+        "datePublished": date_published,
+        "dateModified": date_modified
+    })
+
+# 💾 Exportar a CSV
+df = pd.DataFrame(results)
+df.to_csv("dates_3cat.csv", index=False, encoding="utf-8")
+print(f"\n✅ Arxiu 'dates.csv' generat correctament amb {len(results)} registres.")
